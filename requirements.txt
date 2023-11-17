@@ -1,0 +1,14 @@
+numba
+scipy
+imageio
+matplotlib
+numpy
+Pillow
+dill
+nose
+scikit-image
+codecov
+coverage
+pytest
+pytest-cov
+natsort
