@@ -126,3 +126,9 @@ dmypy.json
 *.p
 
 documentation/\.vscode/
+
+.circleci/
+.readthedocs.yml
+README.md
+images/
+setup.py
