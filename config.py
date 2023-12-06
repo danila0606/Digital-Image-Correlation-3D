@@ -19,10 +19,16 @@ class Config :
         self.image_y_max = 2048
 
         self.region_of_interest_xy_min = np.array([0, 0])
-        self.region_of_interest_xy_max = np.array([700, 2048])
+        self.region_of_interest_xy_max = np.array([2048, 700])
+
+        # self.region_of_interest_xy_min = np.array([0, 0])
+        # self.region_of_interest_xy_max = np.array([self.image_y_max, self.image_x_max])
 
         self.z_bounce = 2
         self.z_radius = 1
         self.sub_group_size = 1
 
         self.show_img_id = 2
+
+        #max iterations for DIC correlation minimization
+        self.maxit = 2 # 40 

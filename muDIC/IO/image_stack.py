@@ -256,6 +256,6 @@ def image_stack_from_list(image_list):
     if type(image_list[0]) is not np.ndarray:
         raise TypeError("Images has to be numpy.ndarrays")
 
-    logger.info("Found %i images in list" % len(image_list))
+    # logger.info("Found %i images in list" % len(image_list))
 
     return ImageStack(ImageListWrapper(image_list))

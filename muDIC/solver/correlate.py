@@ -604,7 +604,7 @@ def my_correlate_img_to_ref_q4(node_coordss, img, ref, settings):
         # Check for convergence
         if np.max(np.abs(dnod)) < settings.tol:
             logging.info('Converged in %s iterations' % it)
-            return node_coords, Ic, True
+            return node_coords, Ic, True, np.max(np.abs(dnod))
 
     logging.info('Did not converged in %s iterations last increment was %0.4f' % (it, np.max(np.abs(dnod))))
     koef = np.max(np.abs(dnod))
@@ -661,7 +661,6 @@ def my_correlate(inputs, correlator, reference_gen):
 
     try:
         for image_id in range(1, settings.max_nr_im):
-            logger.info('Processing frame nr: %i', image_id)
 
             if settings.node_hist:
                 if len(settings.node_hist) >= image_id:

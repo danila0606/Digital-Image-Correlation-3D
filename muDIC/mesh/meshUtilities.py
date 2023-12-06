@@ -349,13 +349,13 @@ class Mesh(object):
         logger = logging.getLogger(__name__)
         try:
             if isinstance(self.element_def, Q4):
-                logger.info("Using Q4 elements")
+                # logger.info("Using Q4 elements")
                 self.ele, self.xnodes, self.ynodes = make_grid_Q4(self.Xc1, self.Yc1, self.Xc2, self.Yc2,
                                                                   self.n_elx,
                                                                   self.n_ely, self.element_def)
 
-                logger.info('Element contains %.1f X %.1f pixels and is divided in %i X %i ' % (
-                    (self.Xc2 - self.Xc1) / self.n_elx, (self.Yc2 - self.Yc1) / self.n_ely, self.n_elx, self.n_ely))
+                # logger.info('Element contains %.1f X %.1f pixels and is divided in %i X %i ' % (
+                #     (self.Xc2 - self.Xc1) / self.n_elx, (self.Yc2 - self.Yc1) / self.n_ely, self.n_elx, self.n_ely))
 
                 self.n_nodes = len(self.xnodes)
                 self.n_elms = self.n_elx * self.n_ely
@@ -365,8 +365,8 @@ class Mesh(object):
                                                                self.n_elx,
                                                                self.n_ely, self.element_def)
 
-                logger.info('Element contains %.1f X %.1f pixels and is divided in %i X %i ' % (
-                    (self.Xc2 - self.Xc1) / self.n_elx, (self.Yc2 - self.Yc1) / self.n_ely, self.n_elx, self.n_ely))
+                # logger.info('Element contains %.1f X %.1f pixels and is divided in %i X %i ' % (
+                #     (self.Xc2 - self.Xc1) / self.n_elx, (self.Yc2 - self.Yc1) / self.n_ely, self.n_elx, self.n_ely))
 
                 self.n_nodes = len(self.xnodes)
                 self.n_elms = 1

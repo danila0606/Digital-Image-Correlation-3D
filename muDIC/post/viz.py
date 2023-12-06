@@ -46,8 +46,8 @@ class Fields(object):
         if isinstance(self.__settings__.mesh.element_def, Q4):
             q4 = True
             seed = 1
-            self.logger.info("Post processing results from Q4 elements. The seed variable is ignored and the values "
-                             "are extracted at the element centers. Use the upscale value to get interpolated fields.")
+            # self.logger.info("Post processing results from Q4 elements. The seed variable is ignored and the values "
+            #                  "are extracted at the element centers. Use the upscale value to get interpolated fields.")
         else:
             q4 = False
             self.logger.info("Post processing results from B-spline elements. The upscale variable is ignored. Use "

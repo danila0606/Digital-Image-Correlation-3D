@@ -6,6 +6,8 @@ import matplotlib.pyplot as plt
 import config 
 from config import Config
 
+import time
+import os
 
 from skimage.io import imread
 from skimage.color import rgb2gray
@@ -17,26 +19,17 @@ image_stacks_t = []
 image_z_max = int(1e10)
 
 for path in cfg.assets:
-    image_stack = dic.image_stack_from_folder(path, file_type=cfg.image_type)
-    image_z_max = min(image_z_max, image_stack.__len__())
+    image_stack = os.listdir(path)
+    image_z_max = min(image_z_max, len(image_stack))
     image_stacks_t.append(image_stack)
-
-image_stacks_z = []
-
-for i in range(0, image_z_max) :
-    image_stack_z = [image_stacks_t[k][i] for k in range (0, cfg.image_t_max)]
-    image_stacks_z.append(dic.image_stack_from_list(image_stack_z))
-
 
 if cfg.subset_offset < cfg.subset_size:
     raise TypeError("Offset between subsets must be bigger or equal than subset size!")
 
 
-subset_number_x = int((cfg.region_of_interest_xy_max[0] - cfg.region_of_interest_xy_min[0]) // ((cfg.subset_size + cfg.subset_offset) / 2))
-subset_number_y = int((cfg.region_of_interest_xy_max[1] - cfg.region_of_interest_xy_min[1]) // ((cfg.subset_size + cfg.subset_offset) / 2))
+subset_number_x = int((cfg.region_of_interest_xy_max[1] - cfg.region_of_interest_xy_min[1]) // ((cfg.subset_size + cfg.subset_offset) / 2))
+subset_number_y = int((cfg.region_of_interest_xy_max[0] - cfg.region_of_interest_xy_min[0]) // ((cfg.subset_size + cfg.subset_offset) / 2))
 print("Subset number_x: ", subset_number_x, ", number_y: ", subset_number_y)
-
-
 
 # TODO:
 crack_xy_min = [0, 0]
@@ -44,15 +37,12 @@ crack_xy_max = [0, 0]
 #
 
 
-
 reference_time = 0
 initital_z_guess = 0
-analyze_result = np.zeros((cfg.sub_group_size * subset_number_x, cfg.sub_group_size * subset_number_y, len(range(0, image_z_max, cfg.z_bounce)), 3))
+analyze_result = np.zeros((cfg.sub_group_size * subset_number_y, cfg.sub_group_size * subset_number_x, len(range(0, image_z_max, cfg.z_bounce)), 3))
 
 def search_crack() :
-    subsets_grid = np.zeros((int(cfg.image_x_max // ((cfg.subset_size + cfg.subset_offset) // 2)), int(cfg.image_y_max // ((cfg.subset_size + cfg.subset_offset) // 2))))
-
-    # img = image_stacks_t[cfg.search_crack_asset_id].__getitem__(cfg.search_crack_img_id)
+    subsets_grid = np.zeros((int(cfg.image_y_max // ((cfg.subset_size + cfg.subset_offset) // 2)), int(cfg.image_x_max // ((cfg.subset_size + cfg.subset_offset) // 2))))
 
     img_path = cfg.assets[cfg.search_crack_asset_id] + cfg.search_crack_img_name
     im = (imread(img_path))
@@ -77,12 +67,14 @@ print(subsets_gradients_grid)
 def is_subset_in_crack(xy_min, gradients_grid) :
     sz = np.array(gradients_grid.shape) - 1
     subset_grid_xy = xy_min // ((cfg.subset_size + cfg.subset_offset) // 2)
-    return np.isnan(gradients_grid[int(subset_grid_xy[1]), int(subset_grid_xy[0])])
+    return np.isnan(gradients_grid[int(subset_grid_xy[0]), int(subset_grid_xy[1])])
 
+
+start_time = time.time()
 
 mesher = dic.MyMesher(type='q4')
-for i in range (0, subset_number_x) :
-    for j in range (0, subset_number_y):
+for i in range (0, subset_number_y) :
+    for j in range (0, subset_number_x):
         subset_center = cfg.region_of_interest_xy_min + (cfg.subset_size / 2 + cfg.subset_offset * np.array([i, j]))
         s_xy_min = subset_center - cfg.subset_size / 2
         s_xy_max = subset_center + cfg.subset_size / 2
@@ -110,11 +102,14 @@ for i in range (0, subset_number_x) :
             best_z = search_z_min
             cur_koef = 1e5
             best_results = None
-            for z in range (search_z_min, search_z_max) :
-                img_stack_tmp = dic.image_stack_from_list([image_stacks_t[reference_time].__getitem__(k), image_stacks_t[reference_time + 1].__getitem__(z)])
-                mesh = mesher.my_mesh(img_stack_tmp, Xc1=s_xy_min[0], Xc2=s_xy_max[0], Yc1=s_xy_min[1], Yc2=s_xy_max[1], n_elx=cfg.sub_group_size, n_ely=cfg.sub_group_size)
 
-                inputs = dic.DICInput(mesh,img_stack_tmp)
+            image_k = plt.imread(cfg.assets[reference_time] + image_stacks_t[reference_time][k])
+            mesh = mesher.my_mesh(dic.image_stack_from_list([image_k]), Xc1=s_xy_min[1], Xc2=s_xy_max[1], Yc1=s_xy_min[0], Yc2=s_xy_max[0], n_elx=cfg.sub_group_size, n_ely=cfg.sub_group_size)
+
+            for z in range (search_z_min, search_z_max) :             
+                img_stack_tmp = dic.image_stack_from_list([image_k, plt.imread(cfg.assets[reference_time + 1] + image_stacks_t[reference_time + 1][z])])
+
+                inputs = dic.DICInput(mesh,img_stack_tmp, maxit=cfg.maxit)
                 dic_job = dic.MyDICAnalysis(inputs)
 
                 results, koefs = dic_job.run()
@@ -140,18 +135,18 @@ for i in range (0, subset_number_x) :
             #
             #         
 
-print(subsets_gradients_grid)
-
 bounced_z_img_id = cfg.show_img_id // cfg.z_bounce
 
-xs = np.arange(cfg.region_of_interest_xy_min[0], 1 + cfg.region_of_interest_xy_max[0] - cfg.subset_size, cfg.subset_offset) + cfg.subset_size // 2
-ys = np.arange(cfg.region_of_interest_xy_min[1], 1 + cfg.region_of_interest_xy_max[1] - cfg.subset_size, cfg.subset_offset) + cfg.subset_size // 2
+xs = np.arange(cfg.region_of_interest_xy_min[1], 1 + cfg.region_of_interest_xy_max[1] - cfg.subset_size, cfg.subset_offset) + cfg.subset_size // 2
+ys = np.arange(cfg.region_of_interest_xy_min[0], 1 + cfg.region_of_interest_xy_max[0] - cfg.subset_size, cfg.subset_offset) + cfg.subset_size // 2
 plot_z = analyze_result[:, :, bounced_z_img_id, 2]
 
 print("PLOT Z:", plot_z)
-print("xs, ys:", xs, ys)
+print('TIME SPENT:', time.time() - start_time)
 
-plt.imshow(image_stacks_z[cfg.show_img_id].__getitem__(0), cmap=plt.cm.gray, origin="lower", extent=(0, cfg.image_x_max, 0, cfg.image_y_max))
-plt.pcolormesh(xs, ys, plot_z.T, alpha=0.3)
+
+background_image = plt.imread(cfg.assets[0] + image_stacks_t[0][cfg.show_img_id])
+plt.imshow(background_image, cmap=plt.cm.gray, origin="lower", extent=(0, cfg.image_x_max, 0, cfg.image_y_max))
+plt.pcolormesh(xs, ys, plot_z, alpha=0.3)
 plt.colorbar()
 plt.show()
