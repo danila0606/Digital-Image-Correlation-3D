@@ -603,10 +603,10 @@ def my_correlate_img_to_ref_q4(node_coordss, img, ref, settings):
 
         # Check for convergence
         if np.max(np.abs(dnod)) < settings.tol:
-            logging.info('Converged in %s iterations' % it)
+            # logging.info('Converged in %s iterations' % it)
             return node_coords, Ic, True, np.max(np.abs(dnod))
 
-    logging.info('Did not converged in %s iterations last increment was %0.4f' % (it, np.max(np.abs(dnod))))
+    # logging.info('Did not converged in %s iterations last increment was %0.4f' % (it, np.max(np.abs(dnod))))
     koef = np.max(np.abs(dnod))
 
     return node_coords, Ic, False, koef
