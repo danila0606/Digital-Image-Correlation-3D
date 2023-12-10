@@ -132,3 +132,5 @@ documentation/\.vscode/
 README.md
 images/
 setup.py
+volumeDIC/__pycache__/
+output/
