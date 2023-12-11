@@ -24,6 +24,7 @@ class Searcher :
 
         self.subset_size = subset_size
         self.subset_offset = subset_offset
+        self.sub_group_size = 1 # not used now
         
         self.z_bounce = z_bounce
         self.z_radius = z_radius
@@ -54,6 +55,8 @@ class Searcher :
         self.subset_number_y = int((self.roi_xy_max[0] - self.roi_xy_min[0] - self.subset_size) // (self.subset_offset)) + 1
         self.subset_number_x = int((self.roi_xy_max[1] - self.roi_xy_min[1] - self.subset_size) // (self.subset_offset)) + 1
         self.subset_number_z = len(range(0, self.stack_h, self.z_bounce))
+
+        self.mesher = dic.MyMesher(type='q4')
     
 
     def __generate_image_stacks__(self):
@@ -97,7 +100,6 @@ class Searcher :
         s_z = self.subset_number_z
 
         subset_number = s_y * s_x
-        sub_group_size = 1
 
         interesting_layers = range(0, self.stack_h, self.z_bounce)
 
@@ -108,9 +110,12 @@ class Searcher :
         img_grads = filters.sobel(imread(self.images_folder + ref_stack[self.stack_h // 2]))
         crack_grad_threshold = crack_weight * img_grads.mean()
 
-        mesher = dic.MyMesher(type='q4')
-        for i in range (0, s_y) :
-            for j in range (0, s_x):
+        initital_z_guess = np.array(interesting_layers)
+        for i in reversed(range(0, s_y)) :
+            row_range = range(0, s_x)
+            if (i % 2 == 0) :
+                row_range = reversed(row_range)
+            for j in row_range:
                 subset_center = self.roi_xy_min + (self.subset_size // 2 + self.subset_offset * np.array([i, j]))
                 s_xy_min = subset_center - self.subset_size / 2
                 s_xy_max = subset_center + self.subset_size / 2
@@ -122,56 +127,45 @@ class Searcher :
                     result_def[xyz_table_start:xyz_table_start + s_z] = np.array([None, None, None])
                     continue
 
-                initital_z_guess = 0
                 for k in interesting_layers :
                     k_bounced = k // self.z_bounce
 
                     result_ref[xyz_table_start + k_bounced] = np.array([subset_center[1], subset_center[0], k])
 
-                    init_z = k + initital_z_guess
-                    if (init_z < 0) :
-                        init_z = 0
-                    elif (init_z >= self.stack_h) :
-                        init_z = self.stack_h - 1
+                    init_z = initital_z_guess[k_bounced]
 
-                    search_z_min = init_z - self.z_radius
+                    search_z_min = k - self.z_radius
                     if (search_z_min < 0) :
                         search_z_min = 0
                     
-                    search_z_max = init_z + self.z_radius
+                    search_z_max = k + self.z_radius
                     if (search_z_max >= self.stack_h) :
                         search_z_max = self.stack_h - 1
 
-                    best_z = search_z_min
-                    cur_koef = 1e5
-                    best_results = None
-
-                    ref_image_k = imread(self.images_folder + ref_stack[k])
-                    mesh = mesher.my_mesh(dic.image_stack_from_list([ref_image_k]), Xc1=s_xy_min[1], Xc2=s_xy_max[1], Yc1=s_xy_min[0], Yc2=s_xy_max[0], n_elx=sub_group_size, n_ely=sub_group_size)
-
-                    for z in range (search_z_min, search_z_max + 1) :             
-                        img_stack_tmp = dic.image_stack_from_list([ref_image_k, imread(self.images_folder + def_stack[z])])
-
-                        inputs = dic.DICInput(mesh, img_stack_tmp, maxit=self.maxit)
-                        dic_job = dic.MyDICAnalysis(inputs)
-
-                        results, koefs = dic_job.run()
-
-                        if (koefs[0] < cur_koef) :
-                            cur_koef = koefs[0]
+                    best_koef = 1e6
+                    for z in range (init_z, search_z_max + 1) :
+                        u, v, koef = self.__calculate_layers_disps___(s_xy_min, s_xy_max, ref_stack[k], def_stack[z])
+                        if (koef < best_koef) :
+                            best_u, best_v, best_koef = u, v, koef
                             best_z = z
-                            best_results = results
+                        else :
+                            break
+                    
+                    if (best_z > init_z) :
+                        result_def[xyz_table_start + k_bounced] = np.array([subset_center[1] + best_v, subset_center[0] + best_u, best_z])
+                        initital_z_guess[k_bounced] = best_z
+                        continue
 
-                    fields = dic.Fields(best_results)
-                    disps = fields.disp()
-                    u = disps[0, 0, :, :, 1].squeeze()
-                    v = disps[0, 1, :, :, 1].squeeze()
+                    for z in reversed(range(search_z_min ,init_z)) :
+                        u, v, koef = self.__calculate_layers_disps___(s_xy_min, s_xy_max, ref_stack[k], def_stack[z])
+                        if (koef < best_koef) :
+                            best_u, best_v, best_koef = u, v, koef
+                            best_z = z
+                        else :
+                            break
 
-                    result_def[xyz_table_start + k_bounced] = np.array([subset_center[1] + v, subset_center[0] + u, best_z])
-                    #TODO :
-                    # initital_z_guess = ...
-                    #
-                    #
+                    result_def[xyz_table_start + k_bounced] = np.array([subset_center[1] + best_v, subset_center[0] + best_u, best_z])
+                    initital_z_guess[k_bounced] = best_z
         
         return result_ref, result_def
     
@@ -198,6 +192,26 @@ class Searcher :
     
     def get_image_bounds(self) :
         return self.image_xy_max
+    
+    def __calculate_layers_disps___(self, xy_min, xy_max, ref_img_name, def_img_name) :
+        ref_image_k = imread(self.images_folder + ref_img_name)
+        mesh = self.mesher.my_mesh(dic.image_stack_from_list([ref_image_k]), Xc1=xy_min[1], Xc2=xy_max[1], Yc1=xy_min[0], Yc2=xy_max[0], n_elx=self.sub_group_size, n_ely=self.sub_group_size)
+
+        img_stack_k_init = dic.image_stack_from_list([ref_image_k, imread(self.images_folder + def_img_name)])
+
+        inputs = dic.DICInput(mesh, img_stack_k_init, maxit=self.maxit)
+        dic_job = dic.MyDICAnalysis(inputs)
+
+        best_results, koefs = dic_job.run()
+
+        fields = dic.Fields(best_results)
+        disps = fields.disp()
+        u = disps[0, 0, :, :, 1].squeeze()
+        v = disps[0, 1, :, :, 1].squeeze()
+
+        return u, v, koefs[0]
+        
+
     
 
          
