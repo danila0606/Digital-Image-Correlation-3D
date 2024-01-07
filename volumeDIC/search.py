@@ -3,6 +3,8 @@ import glob
 
 import muDIC as dic
 
+import xarray as xr
+
 import numpy as np
 import os
 import math  
@@ -15,18 +17,21 @@ from skimage import filters
 class Searcher :
     def __init__(self, subset_size, subset_offset, \
                  z_bounce, z_radius, images_folder, image_name_prefix, times_list, \
-                 roi_xy_min = None, roi_xy_max = None, maxit = 40) :
+                 roi_xy_min = None, roi_xy_max = None, maxit = 40, down_sampling_factor = 1) :
     
         self.logger = logging.getLogger()
 
         if subset_offset < subset_size:
             raise ValueError("Offset between subsets must be bigger or equal than subset size!")
 
-        self.subset_size = subset_size
-        self.subset_offset = subset_offset
+        if (type(down_sampling_factor) is not int) or (down_sampling_factor < 1):
+            raise TypeError("Down sampling factor has to be a positive integer")
+        
+        self.subset_size = int(subset_size // down_sampling_factor)
+        self.subset_offset = int(subset_offset // down_sampling_factor)
         self.sub_group_size = 1 # not used now
         
-        self.z_bounce = z_bounce
+        self.z_bounce = z_bounce  #distances between interesting layers
         self.z_radius = z_radius
 
         self.images_folder = images_folder
@@ -35,13 +40,16 @@ class Searcher :
         if (len(times_list) < 2) :
             raise ValueError("At least two image stacks are needed!")
         
-        self.times_list = times_list
-    
-        self.maxit = maxit
+        self.times_list = times_list # indices of stacks' time in input path
+        self.maxit = maxit # Max iterations for DIC corellator
 
         self.stack_h, self.image_stacks = self.__generate_image_stacks__()
 
+        self.down_sampling_factor = down_sampling_factor
+        self.down_sampler = None
+
         self.image_xy_min, self.image_xy_max = self.__get_image_bounds__()
+
         self.logger.info("Input images\' size is %ix%i" % (self.image_xy_max[1], self.image_xy_max[0]))
 
         if ((self.subset_size > self.image_xy_max[0]) or (self.subset_size > self.image_xy_max[1])) :
@@ -50,14 +58,14 @@ class Searcher :
         if ((roi_xy_min is None) or (roi_xy_max is None)) :
             self.roi_xy_min, self.roi_xy_max = self.image_xy_min, self.image_xy_max
         else :
-            self.roi_xy_min, self.roi_xy_max = roi_xy_min, roi_xy_max
+            self.roi_xy_min, self.roi_xy_max = int(roi_xy_min // down_sampling_factor), int(roi_xy_max // down_sampling_factor)
 
         self.subset_number_y = int((self.roi_xy_max[0] - self.roi_xy_min[0] - self.subset_size) // (self.subset_offset)) + 1
         self.subset_number_x = int((self.roi_xy_max[1] - self.roi_xy_min[1] - self.subset_size) // (self.subset_offset)) + 1
         self.subset_number_z = len(range(0, self.stack_h, self.z_bounce))
 
         self.mesher = dic.MyMesher(type='q4')
-    
+  
 
     def __generate_image_stacks__(self):
         self.logger.info("%i images found in \"%s\"" % (len(os.listdir(self.images_folder)), self.images_folder))
@@ -83,7 +91,7 @@ class Searcher :
     
     def __get_image_bounds__(self) :
         any_image_path = self.image_stacks[0][0]
-        img = imread(self.images_folder + any_image_path)
+        img = self.read_image(self.images_folder + any_image_path)
 
         return np.array([0, 0]), np.array(img.shape)
     
@@ -94,7 +102,7 @@ class Searcher :
         
         return False
     
-    def __run_3D_DIC__(self, ref_stack, def_stack, crack_weight = 0.3) :
+    def __run_3D_DIC__(self, ref_stack, def_images, crack_weight = 0.3) :
         s_x = self.subset_number_x
         s_y = self.subset_number_y
         s_z = self.subset_number_z
@@ -107,7 +115,7 @@ class Searcher :
         result_def = np.zeros_like(result_ref)
 
         # Searching Crack in the image
-        img_grads = filters.sobel(imread(self.images_folder + ref_stack[self.stack_h // 2]))
+        img_grads = filters.sobel(self.read_image(self.images_folder + ref_stack[self.stack_h // 2]))
         crack_grad_threshold = crack_weight * img_grads.mean()
 
         initital_z_guess = np.array(interesting_layers)
@@ -144,7 +152,7 @@ class Searcher :
 
                     best_koef = 1e6
                     for z in range (init_z, search_z_max + 1) :
-                        u, v, koef = self.__calculate_layers_disps___(s_xy_min, s_xy_max, ref_stack[k], def_stack[z])
+                        u, v, koef = self.__calculate_layers_disps___(s_xy_min, s_xy_max, ref_stack[k], def_images[z])
                         if (koef < best_koef) :
                             best_u, best_v, best_koef = u, v, koef
                             best_z = z
@@ -157,7 +165,7 @@ class Searcher :
                         continue
 
                     for z in reversed(range(search_z_min ,init_z)) :
-                        u, v, koef = self.__calculate_layers_disps___(s_xy_min, s_xy_max, ref_stack[k], def_stack[z])
+                        u, v, koef = self.__calculate_layers_disps___(s_xy_min, s_xy_max, ref_stack[k], def_images[z])
                         if (koef < best_koef) :
                             best_u, best_v, best_koef = u, v, koef
                             best_z = z
@@ -180,7 +188,12 @@ class Searcher :
 
             ref_stack = self.image_stacks[i]
             def_stack = self.image_stacks[i+1]
-            total_result[i, 0], total_result[i, 1] = self.__run_3D_DIC__(ref_stack, def_stack)
+
+            # reading deformed stack
+            def_paths = [self.images_folder + def_image_name for def_image_name in def_stack]
+            def_images = list(map(self.read_image, def_paths))
+
+            total_result[i, 0], total_result[i, 1] = self.__run_3D_DIC__(ref_stack, def_images)
 
             if (output_folder is not None) :
                 np.save(output_folder + 'ref_' + str(self.times_list[i]) + '_' + str(self.times_list[i+1]) + '.npy', total_result[i, 0])
@@ -193,11 +206,19 @@ class Searcher :
     def get_image_bounds(self) :
         return self.image_xy_max
     
-    def __calculate_layers_disps___(self, xy_min, xy_max, ref_img_name, def_img_name) :
-        ref_image_k = imread(self.images_folder + ref_img_name)
-        mesh = self.mesher.my_mesh(dic.image_stack_from_list([ref_image_k]), Xc1=xy_min[1], Xc2=xy_max[1], Yc1=xy_min[0], Yc2=xy_max[0], n_elx=self.sub_group_size, n_ely=self.sub_group_size)
+    def read_image(self, path) :
+        image = imread(path)
+        if (self.down_sampling_factor != 1) :
+            a = xr.DataArray(image, dims=['x', 'y'])
+            image = a.coarsen(x=self.down_sampling_factor, y=self.down_sampling_factor).mean().to_numpy()
 
-        img_stack_k_init = dic.image_stack_from_list([ref_image_k, imread(self.images_folder + def_img_name)])
+        return image
+    
+    def __calculate_layers_disps___(self, xy_min, xy_max, ref_img_name, def_image) :
+        ref_image = self.read_image(self.images_folder + ref_img_name)
+        mesh = self.mesher.my_mesh(dic.image_stack_from_list([ref_image]), Xc1=xy_min[1], Xc2=xy_max[1], Yc1=xy_min[0], Yc2=xy_max[0], n_elx=self.sub_group_size, n_ely=self.sub_group_size)
+
+        img_stack_k_init = dic.image_stack_from_list([ref_image, def_image])
 
         inputs = dic.DICInput(mesh, img_stack_k_init, maxit=self.maxit)
         dic_job = dic.MyDICAnalysis(inputs)
