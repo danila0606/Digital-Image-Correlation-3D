@@ -13,3 +13,5 @@ pytest
 pytest-cov
 natsort
 xarray
+pims
+trackpy

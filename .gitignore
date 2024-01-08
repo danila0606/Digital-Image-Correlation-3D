@@ -135,3 +135,5 @@ setup.py
 volumeDIC/__pycache__/
 output/
 Crack_PNG_re-ordered/
+Results/
+Crack_PNG_re-ordered_Test/

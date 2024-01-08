@@ -113,12 +113,13 @@ class Searcher :
 
         result_ref = np.zeros((s_z * subset_number, 3))
         result_def = np.zeros_like(result_ref)
+        result_koefs = np.zeros((s_z * subset_number))
 
         # Searching Crack in the image
         img_grads = filters.sobel(self.read_image(self.images_folder + ref_stack[self.stack_h // 2]))
         crack_grad_threshold = crack_weight * img_grads.mean()
 
-        initital_z_guess = np.array(interesting_layers)
+        initital_z_guess = np.array(interesting_layers, dtype=int)
         for i in reversed(range(0, s_y)) :
             row_range = range(0, s_x)
             if (i % 2 == 0) :
@@ -131,12 +132,16 @@ class Searcher :
                 xyz_table_start = j * (s_y * s_z) + i * s_z
 
                 if (self.__is_subset_in_crack__(s_xy_min.astype(int), img_grads, crack_grad_threshold)) :
-                    result_ref[xyz_table_start:xyz_table_start + s_z] = np.concatenate((np.repeat(np.array([subset_center[1], subset_center[0]]), s_z, axis=1).T, interesting_layers[:, None]), axis = 1)
-                    result_def[xyz_table_start:xyz_table_start + s_z] = np.array([None, None, None])
+                    result_ref[xyz_table_start:xyz_table_start + s_z] = np.concatenate((np.repeat(np.array([subset_center[1], subset_center[0]])[:, None], s_z, axis=1).T, np.array(interesting_layers)[:, None]), axis = 1)
+                    result_def[xyz_table_start:xyz_table_start + s_z] = result_ref[xyz_table_start:xyz_table_start + s_z] #np.array([None, None, None])
+                    result_koefs[xyz_table_start + k_bounced] = None
                     continue
 
                 for k in interesting_layers :
-                    k_bounced = k // self.z_bounce
+                    ref_image = self.read_image(self.images_folder + ref_stack[k])
+                    mesh = self.mesher.my_mesh(dic.image_stack_from_list([ref_image]), Xc1=s_xy_min[1], Xc2=s_xy_max[1], Yc1=s_xy_min[0], Yc2=s_xy_max[0], n_elx=self.sub_group_size, n_ely=self.sub_group_size)
+
+                    k_bounced = int(k // self.z_bounce)
 
                     result_ref[xyz_table_start + k_bounced] = np.array([subset_center[1], subset_center[0], k])
 
@@ -152,7 +157,7 @@ class Searcher :
 
                     best_koef = 1e6
                     for z in range (init_z, search_z_max + 1) :
-                        u, v, koef = self.__calculate_layers_disps___(s_xy_min, s_xy_max, ref_stack[k], def_images[z])
+                        u, v, koef = self.__calculate_layers_disps___(ref_image, def_images[z], mesh)
                         if (koef < best_koef) :
                             best_u, best_v, best_koef = u, v, koef
                             best_z = z
@@ -161,27 +166,32 @@ class Searcher :
                     
                     if (best_z > init_z) :
                         result_def[xyz_table_start + k_bounced] = np.array([subset_center[1] + best_v, subset_center[0] + best_u, best_z])
+                        result_koefs[xyz_table_start + k_bounced] = best_koef
+
                         initital_z_guess[k_bounced] = best_z
                         continue
 
                     for z in reversed(range(search_z_min ,init_z)) :
-                        u, v, koef = self.__calculate_layers_disps___(s_xy_min, s_xy_max, ref_stack[k], def_images[z])
+                        u, v, koef = self.__calculate_layers_disps___(ref_image, def_images[z], mesh)
                         if (koef < best_koef) :
                             best_u, best_v, best_koef = u, v, koef
                             best_z = z
                         else :
                             break
 
-                    result_def[xyz_table_start + k_bounced] = np.array([subset_center[1] + best_v, subset_center[0] + best_u, best_z])
+                    result_def[xyz_table_start + k_bounced]   = np.array([subset_center[1] + best_v, subset_center[0] + best_u, best_z])
+                    result_koefs[xyz_table_start + k_bounced] = best_koef
+
                     initital_z_guess[k_bounced] = best_z
         
-        return result_ref, result_def
+        return result_ref, result_def, result_koefs
     
     def run(self, output_folder = None) :
 
-        self.logger.info("Subset number_x: %i, number_y: %i" % (self.subset_number_x, self.subset_number_y))
+        self.logger.info("Subset number_x: %i, number_y: %i, number_z: %i" % (self.subset_number_x, self.subset_number_y, self.subset_number_z))
 
         total_result = np.zeros((len(self.image_stacks) - 1, 2, self.subset_number_x * self.subset_number_y * self.subset_number_z, 3))
+        corr_koefs = np.zeros((len(self.image_stacks) - 1, self.subset_number_x * self.subset_number_y * self.subset_number_z))
 
         for i in range (0, len(self.image_stacks) - 1) :
             start_time = time.time()
@@ -193,15 +203,18 @@ class Searcher :
             def_paths = [self.images_folder + def_image_name for def_image_name in def_stack]
             def_images = list(map(self.read_image, def_paths))
 
-            total_result[i, 0], total_result[i, 1] = self.__run_3D_DIC__(ref_stack, def_images)
+            total_result[i, 0], total_result[i, 1], corr_koefs[i] = self.__run_3D_DIC__(ref_stack, def_images)
+
+            total_result[i, :, :, 0:2] *= self.down_sampling_factor # multiplying x and y because of downsampling
 
             if (output_folder is not None) :
-                np.save(output_folder + 'ref_' + str(self.times_list[i]) + '_' + str(self.times_list[i+1]) + '.npy', total_result[i, 0])
-                np.save(output_folder + 'def_' + str(self.times_list[i]) + '_' + str(self.times_list[i+1]) + '.npy', total_result[i, 1])
+                np.save(output_folder + 'ref_'  + str(self.times_list[i]) + '_' + str(self.times_list[i+1]) + '.npy', total_result[i, 0])
+                np.save(output_folder + 'def_'  + str(self.times_list[i]) + '_' + str(self.times_list[i+1]) + '.npy', total_result[i, 1])
+                np.save(output_folder + 'corr_' + str(self.times_list[i]) + '_' + str(self.times_list[i+1]) + '.npy', corr_koefs[i])
             
             self.logger.info("Time spent for DIC between stack %i and %i is %f seconds." %(self.times_list[i], self.times_list[i+1], time.time() - start_time))
 
-        return total_result
+        return total_result, corr_koefs
     
     def get_image_bounds(self) :
         return self.image_xy_max
@@ -214,10 +227,7 @@ class Searcher :
 
         return image
     
-    def __calculate_layers_disps___(self, xy_min, xy_max, ref_img_name, def_image) :
-        ref_image = self.read_image(self.images_folder + ref_img_name)
-        mesh = self.mesher.my_mesh(dic.image_stack_from_list([ref_image]), Xc1=xy_min[1], Xc2=xy_max[1], Yc1=xy_min[0], Yc2=xy_max[0], n_elx=self.sub_group_size, n_ely=self.sub_group_size)
-
+    def __calculate_layers_disps___(self, ref_image, def_image, mesh) :
         img_stack_k_init = dic.image_stack_from_list([ref_image, def_image])
 
         inputs = dic.DICInput(mesh, img_stack_k_init, maxit=self.maxit)
