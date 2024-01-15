@@ -26,14 +26,18 @@ def closest_node(node, nodes, m): # Nearest m particels
     dist_2 = np.sqrt(np.sum((nodes - node)**2, axis=1))
     return np.argsort(dist_2)[1:m+1]
 
-def RemoveWrongMatch(grid_1, grid_0,corr_max, k, q1, q3, corr_th, max_ux):
+def RemoveWrongMatch(grid_1, grid_0,corr_max, k, q1, q3, corr_th, max_ux, method):
     grid_0 = grid_0[~np.isnan(corr_max),:]
     grid_1 = grid_1[~np.isnan(corr_max),:]
     corr_max = corr_max[~np.isnan(corr_max)]
     disp = grid_1 - grid_0
     
     mask = np.full(len(grid_0),True)
-    mask[corr_max<corr_th] = False
+    if (method == 'TM') :
+        mask[corr_max < corr_th] = False
+    elif (method == 'DIC') :
+        mask[corr_max > corr_th] = False
+        
     mask[np.abs(disp[:,0])>max_ux] = False
     for node_id, node in enumerate(grid_0):
         neighbors = closest_node(node, grid_0, k) # compare the nearest n neighbors
@@ -47,6 +51,7 @@ def RemoveWrongMatch(grid_1, grid_0,corr_max, k, q1, q3, corr_th, max_ux):
     grid_1 = grid_1[mask]
     corr_max = corr_max[mask]
     return grid_0, grid_1, corr_max
+    
 
 fp = r'.'
 fp_img = fp+r'/Crack_PNG_re-ordered_Test/'
@@ -75,7 +80,7 @@ pt_loc['zum'] = pt_loc['z'] * scale_z
 
 pt_search_range = 30
 disp_interps = []
-disp_source_method = 'TM' # TM
+disp_source_method = 'DIC' # TM
 
 if (disp_source_method == 'TM') :
 
@@ -84,7 +89,7 @@ if (disp_source_method == 'TM') :
         grid_0 = np.loadtxt(fp+r'/Results/Correlation/Frame'+str(tt0)+'toFrame'+str(tt1)+'_grid_0.csv', delimiter=',')
         grid_1 = np.loadtxt(fp+r'/Results/Correlation/Frame'+str(tt0)+'toFrame'+str(tt1)+'_grid_1.csv', delimiter=',')
         corr   = np.loadtxt(fp + r'/Results/Correlation/Frame'+str(tt0)+'toFrame'+str(tt1)+'_cc.csv', delimiter=',')
-        grid_0, grid_1, corr = RemoveWrongMatch(grid_1, grid_0,corr, 10, 0.25, 0.75, corr_th=0.3, max_ux=300)
+        grid_0, grid_1, corr = RemoveWrongMatch(grid_1, grid_0,corr, 10, 0.25, 0.75, corr_th=0.3, max_ux=300, method=disp_source_method)
         grid_0 = grid_0 * px_to_um
         grid_1 = grid_1 * px_to_um
         disp_01 = grid_1 - grid_0
@@ -94,10 +99,10 @@ if (disp_source_method == 'TM') :
 elif (disp_source_method == 'DIC') :
     for tt0 in np.arange(time_size-1):
         tt1 = tt0 + 1
-        grid_0 = np.load(fp+r'/output/all_disps_200_no_downsampling/ref_'+str(tt0)+r'_'+str(tt1)+'.npy')
-        grid_1 = np.load(fp+r'/output/all_disps_200_no_downsampling/def_'+str(tt0)+r'_'+str(tt1)+'.npy')
-        corr   = np.load(fp+r'/output/all_disps_200_no_downsampling/corr_'+str(tt0)+r'_'+str(tt1)+'.npy')
-        # grid_0, grid_1, corr = RemoveWrongMatch(grid_1, grid_0,corr, 10, 0.25, 0.75, corr_th=0.3, max_ux=300)
+        grid_0 = np.load(fp+r'/output/all_disps/ref_'+str(tt0)+r'_'+str(tt1)+'.npy')
+        grid_1 = np.load(fp+r'/output/all_disps/def_'+str(tt0)+r'_'+str(tt1)+'.npy')
+        corr   = np.load(fp+r'/output/all_disps/corr_'+str(tt0)+r'_'+str(tt1)+'.npy')
+        grid_0, grid_1, corr = RemoveWrongMatch(grid_1, grid_0,corr, 10, 0.25, 0.75, corr_th=30, max_ux=300, method=disp_source_method)
         grid_0 = grid_0 * px_to_um
         grid_1 = grid_1 * px_to_um
         disp_01 = grid_1 - grid_0
@@ -137,22 +142,21 @@ F0 = F0[F0.index.isin(F1.index)].sort_index()
 F1 = F1[F1.index.isin(F0.index)].sort_index()
 
 X0_img = F0[['x', 'y', 'z']].to_numpy()
-x1_img = F1[['x', 'y', 'z']].to_numpy()
+X1_img = F1[['x', 'y', 'z']].to_numpy()
 
 X0_um = X0_img * px_to_um
-x1_um = x1_img * px_to_um
-disp = x1_um - X0_um
+X1_um = X1_img * px_to_um
+disp = X1_um - X0_um
 
 ev_slice = 60
 
-pt_filter = np.logical_and(X0_img[:,2]>40,X0_img[:,2]<50,)
+pt_filter = np.logical_and(X0_img[:,2]>=40, X0_img[:,2]<60)
 
 fig0, ax0 = plt.subplots(figsize=(6,3),dpi=300)
 ax0.imshow(frames[ev_fn][ev_slice],cmap='gray')
-# sc0 = ax0.scatter(x1_img[pt_filter,0],x1_img[pt_filter,1], c=disp[pt_filter,1]-np.nanmean(disp[pt_filter,1]),cmap='jet',s=1)
-sc0 = ax0.scatter(x1_img[:,0],x1_img[:,1], c=disp[:,1]-np.nanmean(disp[:,1]),cmap='jet',s=1)
+sc0 = ax0.scatter(X1_img[pt_filter,0],X1_img[pt_filter,1], c=disp[pt_filter,2]-np.nanmean(disp[pt_filter,2]),cmap='jet',s=1)
 
-sc0.set_clim(-50,50)
+sc0.set_clim(-10,10)
 cbar0 = fig0.colorbar(sc0,ax=ax0)
 ax0.set_aspect('equal', adjustable='box')
 ax0.axis('off')
