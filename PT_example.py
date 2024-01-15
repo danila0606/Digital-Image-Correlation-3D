@@ -54,7 +54,7 @@ def RemoveWrongMatch(grid_1, grid_0,corr_max, k, q1, q3, corr_th, max_ux, method
     
 
 fp = r'.'
-fp_img = fp+r'/Crack_PNG_re-ordered_Test/'
+fp_img = fp+r'/Crack_PNG_re-ordered/'
 
 frames = pims.ImageSequenceND(fp_img+'*.png', axes_identifiers = ['z', 'w']) # w represents time, because t cause conflict with .tif
 frames.bundle_axes = ['z', 'y', 'x']
@@ -65,7 +65,7 @@ time_size = frames.shape[0]
 p_diameter = [19, 19, 27]
 p_separation = [10, 10, 15]
 # Particle locations path
-pt_loc_path = fp+r'/Results/Locating_Test/pt_loc_' + ''.join(str(p_dim) for p_dim in p_diameter) + r'_' + ''.join(str(p_sep) for p_sep in p_separation) + r'.pkl'
+pt_loc_path = fp+r'/Results/Locating/pt_loc_' + ''.join(str(p_dim) for p_dim in p_diameter) + r'_' + ''.join(str(p_sep) for p_sep in p_separation) + r'.pkl'
 
 if not os.path.exists(pt_loc_path) :   
     pt_loc = tp.batch(frames, diameter=p_diameter, separation=p_separation)
@@ -95,7 +95,7 @@ if (disp_source_method == 'TM') :
         disp_01 = grid_1 - grid_0
         disp_interps.append(LinearNDInterpolatorExt(grid_0, disp_01))
 
-        pt_link_path = fp+r'/Results/Linking_Test/pt_link_r' + str(pt_search_range) + r'um_corr.pkl'
+        pt_link_path = fp+r'/Results/Linking/pt_link_r' + str(pt_search_range) + r'um_corr.pkl'
 elif (disp_source_method == 'DIC') :
     for tt0 in np.arange(time_size-1):
         tt1 = tt0 + 1
@@ -108,7 +108,7 @@ elif (disp_source_method == 'DIC') :
         disp_01 = grid_1 - grid_0
         disp_interps.append(LinearNDInterpolatorExt(grid_0, disp_01))
 
-        pt_link_path = fp+r'/Results/DIC_Linking_Test/pt_link_r' + str(pt_search_range) + r'um_corr.pkl'
+        pt_link_path = fp+r'/Results/DIC_Linking/pt_link_r' + str(pt_search_range) + r'um_corr.pkl'
 else :
     raise ValueError(disp_source_method + ' doesn\'t supported!')
 
